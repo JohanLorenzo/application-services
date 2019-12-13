@@ -27,6 +27,24 @@ use sync15::{
 };
 use sync_guid::Guid;
 use url::{Host, Url};
+use serde::{Serialize, Deserialize};
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct MigrationPhaseMetrics {
+    name: String,
+    total_starting: u64,
+    total_successfully_processed: u64,
+    total_duration: i64,
+    errors: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct MigrationMetrics {
+    total_duration: i64,
+    phases: Vec<MigrationPhaseMetrics>,
+    num_failed: u64,
+    errors: Vec<String>,
+}
 
 pub struct LoginDb {
     pub db: Connection,
@@ -499,6 +517,7 @@ impl LoginDb {
         }
         let tx = self.unchecked_transaction()?;
         let now_ms = util::system_time_ms_i64(SystemTime::now());
+        let import_start = now_ms;
         let sql = format!(
             "INSERT OR IGNORE INTO loginsL (
                 hostname,
@@ -535,7 +554,14 @@ impl LoginDb {
             )",
             new = SyncStatus::New as u8
         );
-        let mut num_failed = 0;
+        let import_start_total_logins: u64 = logins.len() as u64;
+        let mut fixup_phase_end = 0;
+        let mut num_failed_fixup: u64 = 0;
+        let mut insert_phase_start = 0;
+        let mut num_failed_insert: u64 = 0;
+        let mut fixup_errors: Vec<String> = Vec::new();
+        let mut insert_errors: Vec<String> = Vec::new();
+
         for login in logins {
             // This is a little bit of hoop-jumping to avoid cloning each borrowed item
             // in order to *possibly* created a fixed-up version.
@@ -555,7 +581,11 @@ impl LoginDb {
                 }
                 Err(e) => {
                     log::warn!("Skipping login {} as it is invalid ({}).", login.guid, e);
-                    num_failed += 1;
+                    fixup_errors.push(format!(
+                        "Skipping login {} as it is invalid ({}).",
+                        login.guid, e
+                    ));
+                    num_failed_fixup += 1;
                     continue;
                 }
             };
@@ -566,6 +596,8 @@ impl LoginDb {
             } else {
                 Guid::random()
             };
+            fixup_phase_end = util::system_time_ms_i64(SystemTime::now());
+            insert_phase_start = util::system_time_ms_i64(SystemTime::now());
             match self.execute_named_cached(
                 &sql,
                 named_params! {
@@ -587,12 +619,45 @@ impl LoginDb {
                 Ok(_) => log::info!("Imported {} (new GUID {}) successfully.", old_guid, guid),
                 Err(e) => {
                     log::warn!("Could not import {} ({}).", old_guid, e);
-                    num_failed += 1;
+                    insert_errors.push(format!("Could not import {} ({}).", old_guid, e));
+                    num_failed_insert += 1;
                 }
             };
         }
         tx.commit()?;
-        Ok(num_failed)
+        // TODO: handle potential negative durations and counts
+        let fixup_phase_duration = fixup_phase_end - import_start;
+        let num_post_fixup = import_start_total_logins - num_failed_fixup;
+
+        let insert_phase_end = util::system_time_ms_i64(SystemTime::now());
+        let insert_phase_duration = insert_phase_end - insert_phase_start;
+        let mut all_errors = Vec::new();
+        all_errors.extend(fixup_errors.clone());
+        all_errors.extend(insert_errors.clone());
+
+        let metrics = MigrationMetrics {
+            total_duration: fixup_phase_duration + insert_phase_duration,
+            phases: vec![
+                MigrationPhaseMetrics {
+                    name: "fixup phase".into(),
+                    total_starting: import_start_total_logins,
+                    total_successfully_processed: num_post_fixup,
+                    total_duration: fixup_phase_duration,
+                    errors: fixup_errors,
+                },
+                MigrationPhaseMetrics {
+                    name: "insert phase".into(),
+                    total_starting: num_post_fixup,
+                    total_successfully_processed: num_post_fixup - num_failed_insert,
+                    total_duration: insert_phase_duration,
+                    errors: insert_errors,
+                },
+            ],
+            num_failed: num_failed_fixup + num_failed_insert,
+            errors: all_errors,
+        };
+
+        Ok(num_failed_fixup + num_failed_insert)
     }
 
     pub fn update(&self, login: Login) -> Result<()> {
