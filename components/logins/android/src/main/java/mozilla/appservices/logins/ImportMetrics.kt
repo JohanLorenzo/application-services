@@ -35,12 +35,26 @@ data class ImportMetrics(
 
     fun toJSON(): JSONObject {
         val o = JSONObject()
+        val errorsList: MutableList<String> = mutableListOf()
+        val array = jsonObject.getJSONArray("errors")
+        for (item in array) {
+            errorsList.add(item)
+        }
+
         o.put("totalDuration", totalDuration)
-        o.put("phases", phases.toJSON())
+        o.put("phases", phasesToJSON(phases))
         o.put("numFailed", numFailed)
         o.put("errors", new JSONArray(errors))
         return o
     }
 
     // TODO: create JSON static methods
+}
+
+private fun phasesToJSON(phaseList: List<ImportPhaseMetrics>): JSONArray {
+    val phaseArray = JSONArray()
+    for (item in phasesList) {
+        phaseArray.put(item.toJSON())
+    }
+    return phaseArray
 }

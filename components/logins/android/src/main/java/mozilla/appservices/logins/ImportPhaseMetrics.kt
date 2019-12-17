@@ -50,8 +50,8 @@ data class ImportPhaseMetrics(
         fun fromJSON(jsonObject: JSONObject): ImportPhaseMetrics {
             val errorsList: MutableList<String> = mutableListOf()
             val array = jsonObject.getJSONArray("errors")
-            for (el in array) {
-                errorsList.add(el)
+            for (item in array) {
+                errorsList.add(item)
             }
 
             return ImportPhaseMetrics(
