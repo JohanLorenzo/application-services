@@ -231,7 +231,7 @@ class DatabaseLoginsStorage(private val dbPath: String) : AutoCloseable, LoginsS
     }
 
     @Throws(LoginsStorageException::class)
-    override fun importLogins(logins: Array<ServerPassword>): Long {
+    override fun importLogins(logins: Array<ServerPassword>): ImportMetrics {
         val s = JSONArray().apply {
             logins.forEach {
                 put(it.toJSON())

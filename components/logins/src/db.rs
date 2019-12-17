@@ -13,6 +13,7 @@ use rusqlite::{
     types::{FromSql, ToSql},
     Connection, NO_PARAMS,
 };
+use serde_derive::*;
 use sql_support::{self, ConnExt};
 use sql_support::{SqlInterruptHandle, SqlInterruptScope};
 use std::collections::HashSet;
@@ -27,7 +28,6 @@ use sync15::{
 };
 use sync_guid::Guid;
 use url::{Host, Url};
-use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct MigrationPhaseMetrics {
@@ -506,7 +506,7 @@ impl LoginDb {
         Ok(login)
     }
 
-    pub fn import_multiple(&self, logins: &[Login]) -> Result<u64> {
+    pub fn import_multiple(&self, logins: &[Login]) -> Result<MigrationMetrics> {
         // Check if the logins table is empty first.
         let mut num_existing_logins =
             self.query_row::<i64, _, _>("SELECT COUNT(*) FROM loginsL", NO_PARAMS, |r| r.get(0))?;
@@ -635,7 +635,7 @@ impl LoginDb {
         all_errors.extend(fixup_errors.clone());
         all_errors.extend(insert_errors.clone());
 
-        let metrics = MigrationMetrics {
+        Ok(MigrationMetrics {
             total_duration: fixup_phase_duration + insert_phase_duration,
             phases: vec![
                 MigrationPhaseMetrics {
@@ -655,9 +655,7 @@ impl LoginDb {
             ],
             num_failed: num_failed_fixup + num_failed_insert,
             errors: all_errors,
-        };
-
-        Ok(num_failed_fixup + num_failed_insert)
+        })
     }
 
     pub fn update(&self, login: Login) -> Result<()> {
