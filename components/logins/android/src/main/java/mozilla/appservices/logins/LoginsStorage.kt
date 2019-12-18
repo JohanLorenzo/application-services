@@ -186,7 +186,7 @@ interface LoginsStorage : AutoCloseable {
      * @throws [LoginsStorageException] On unexpected errors (IO failure, rust panics, etc)
      */
     @Throws(LoginsStorageException::class)
-    fun importLogins(logins: Array<ServerPassword>): Long
+    fun importLogins(logins: Array<ServerPassword>): ImportMetrics
 
     /**
      * Updates the fields in the provided record.

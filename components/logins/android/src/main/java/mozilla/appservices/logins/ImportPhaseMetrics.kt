@@ -42,16 +42,16 @@ data class ImportPhaseMetrics(
         o.put("totalStarting", totalStarting)
         o.put("totalSuccessfullyProcessed", totalSuccessfullyProcessed)
         o.put("totalDuration", totalDuration)
-        o.put("errors", new JSONArray(errors))
+        o.put("errors", JSONArray(errors))
         return o
     }
 
     companion object {
         fun fromJSON(jsonObject: JSONObject): ImportPhaseMetrics {
             val errorsList: MutableList<String> = mutableListOf()
-            val array = jsonObject.getJSONArray("errors")
-            for (item in array) {
-                errorsList.add(item)
+            val errorsArray = jsonObject.getJSONArray("errors")
+            for (index in 0 until errorsArray.length())  {
+                errorsList.add(errorsArray.getString(index))
             }
 
             return ImportPhaseMetrics(

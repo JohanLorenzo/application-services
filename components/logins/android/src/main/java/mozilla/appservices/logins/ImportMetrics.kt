@@ -3,9 +3,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 package mozilla.appservices.logins
-// import org.json.JSONArray
+import org.json.JSONArray
 // import org.json.JSONException
-// import org.json.JSONObject
+import org.json.JSONObject
 
 /**
  * Raw password data that is stored by the LoginsStorage implementation.
@@ -33,6 +33,14 @@ data class ImportMetrics(
     val errors: List<String>
 ) {
 
+    private fun phasesToJSON(phaseList: List<ImportPhaseMetrics>): JSONArray {
+        val phaseArray = JSONArray()
+        for (item in phasesList) {
+            phaseArray.put(item.toJSON())
+        }
+        return phaseArray
+    }
+
     fun toJSON(): JSONObject {
         val o = JSONObject()
         val errorsList: MutableList<String> = mutableListOf()
@@ -44,17 +52,9 @@ data class ImportMetrics(
         o.put("totalDuration", totalDuration)
         o.put("phases", phasesToJSON(phases))
         o.put("numFailed", numFailed)
-        o.put("errors", new JSONArray(errors))
+        o.put("errors", JSONArray(errors))
         return o
     }
 
     // TODO: create JSON static methods
-}
-
-private fun phasesToJSON(phaseList: List<ImportPhaseMetrics>): JSONArray {
-    val phaseArray = JSONArray()
-    for (item in phasesList) {
-        phaseArray.put(item.toJSON())
-    }
-    return phaseArray
 }
