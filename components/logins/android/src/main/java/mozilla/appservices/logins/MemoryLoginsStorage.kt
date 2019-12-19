@@ -211,9 +211,9 @@ class MemoryLoginsStorage(private var list: List<ServerPassword>) : AutoCloseabl
                 numErrors += 1
             }
         }
-        // Note: This function does not have logical parity with its counterpart in
-        // DatabaseLoginsStorage! It has merely been updated to return a JSONObject
-        // in order to remedy build errors.
+        // Note: This returned JSONObject does not have the same members as its
+        // counterpart in DatabaseLoginsStorage! It is being returned merely
+        // to remedy build errors.
         val json = JSONObject()
         json.put("num_failed", numErrors)
         return json

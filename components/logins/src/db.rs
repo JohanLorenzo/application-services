@@ -21,7 +21,7 @@ use std::ops::Deref;
 use std::path::Path;
 use std::result;
 use std::sync::{atomic::AtomicUsize, Arc};
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 use sync15::{
     extract_v1_state, telemetry, CollSyncIds, CollectionRequest, IncomingChangeset,
     OutgoingChangeset, Payload, ServerTimestamp, Store, StoreSyncAssociation,
@@ -34,14 +34,16 @@ struct MigrationPhaseMetrics {
     name: String,
     total_starting: u64,
     total_successfully_processed: u64,
-    total_duration: i64,
+    total_duration: u128,
     errors: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MigrationMetrics {
-    total_duration: i64,
+    total_duration: u128,
     phases: Vec<MigrationPhaseMetrics>,
+    num_processed: u64,
+    num_succeeded: u64,
     num_failed: u64,
     errors: Vec<String>,
 }
@@ -517,7 +519,7 @@ impl LoginDb {
         }
         let tx = self.unchecked_transaction()?;
         let now_ms = util::system_time_ms_i64(SystemTime::now());
-        let import_start = now_ms;
+        let import_start = Instant::now();
         let sql = format!(
             "INSERT OR IGNORE INTO loginsL (
                 hostname,
@@ -555,10 +557,9 @@ impl LoginDb {
             new = SyncStatus::New as u8
         );
         let import_start_total_logins: u64 = logins.len() as u64;
-        let mut fixup_phase_end = 0;
         let mut num_failed_fixup: u64 = 0;
-        let mut insert_phase_start = 0;
         let mut num_failed_insert: u64 = 0;
+        let mut fixup_phase_duration = Duration::new(0, 0);
         let mut fixup_errors: Vec<String> = Vec::new();
         let mut insert_errors: Vec<String> = Vec::new();
 
@@ -596,8 +597,7 @@ impl LoginDb {
             } else {
                 Guid::random()
             };
-            fixup_phase_end = util::system_time_ms_i64(SystemTime::now());
-            insert_phase_start = util::system_time_ms_i64(SystemTime::now());
+            fixup_phase_duration = import_start.elapsed();
             match self.execute_named_cached(
                 &sql,
                 named_params! {
@@ -625,37 +625,48 @@ impl LoginDb {
             };
         }
         tx.commit()?;
-        // TODO: handle potential negative durations and counts
-        let fixup_phase_duration = fixup_phase_end - import_start;
-        let num_post_fixup = import_start_total_logins - num_failed_fixup;
 
-        let insert_phase_end = util::system_time_ms_i64(SystemTime::now());
-        let insert_phase_duration = insert_phase_end - insert_phase_start;
+        let num_post_fixup = import_start_total_logins - num_failed_fixup;
+        let num_failed = num_failed_fixup + num_failed_insert;
+        let insert_phase_duration = import_start
+            .elapsed()
+            .checked_sub(fixup_phase_duration)
+            .unwrap_or_else(|| Duration::new(0, 0));
         let mut all_errors = Vec::new();
         all_errors.extend(fixup_errors.clone());
         all_errors.extend(insert_errors.clone());
 
-        Ok(MigrationMetrics {
-            total_duration: fixup_phase_duration + insert_phase_duration,
+        let metrics = MigrationMetrics {
+            total_duration: fixup_phase_duration
+                .checked_add(insert_phase_duration)
+                .unwrap_or_else(|| Duration::new(0, 0))
+                .as_millis(),
             phases: vec![
                 MigrationPhaseMetrics {
                     name: "fixup phase".into(),
                     total_starting: import_start_total_logins,
                     total_successfully_processed: num_post_fixup,
-                    total_duration: fixup_phase_duration,
+                    total_duration: fixup_phase_duration.as_millis(),
                     errors: fixup_errors,
                 },
                 MigrationPhaseMetrics {
                     name: "insert phase".into(),
                     total_starting: num_post_fixup,
                     total_successfully_processed: num_post_fixup - num_failed_insert,
-                    total_duration: insert_phase_duration,
+                    total_duration: insert_phase_duration.as_millis(),
                     errors: insert_errors,
                 },
             ],
-            num_failed: num_failed_fixup + num_failed_insert,
+            num_processed: import_start_total_logins,
+            num_succeeded: import_start_total_logins - num_failed,
+            num_failed,
             errors: all_errors,
-        })
+        };
+        log::info!(
+            "Finished importing logins with the following metrics: {:#?}",
+            metrics
+        );
+        Ok(metrics)
     }
 
     pub fn update(&self, login: Login) -> Result<()> {
